@@ -29,100 +29,190 @@
 
 #include "cortex.h"
 
-t_buf_pos _cortex_read_line(CORTEX_FILE* file)
+enum PATH_TYPE {FLANK_5P,FLANK_3P,BRANCH1,BRANCH2};
+
+char *fail_msg = "FAILS CLASSIFIER:";
+char *discovery_msg = "DISCOVERY PHASE:";
+
+t_buf_pos _cortex_read_line(CORTEX_FILE* c_file)
 {
-  t_buf_pos chars_read = string_buff_reset_gzreadline(file->buffer, file->file);
-  string_buff_chomp(file->buffer);
-  file->line_number++;
+  t_buf_pos chars_read = string_buff_reset_gzreadline(c_file->buffer,
+                                                      c_file->file);
+  string_buff_chomp(c_file->buffer);
+  c_file->line_number++;
+  
+  //printf("Read: %s\n", c_file->buffer->buff);
+  
   return chars_read;
+}
+
+t_buf_pos _cortex_read_reset(CORTEX_FILE* c_file)
+{
+  gzrewind(c_file->file);
+  c_file->line_number = 0;
+  return _cortex_read_line(c_file);
+}
+
+char* _parse_bubble_meta(const char* buff, const char* search,
+                         char* result, CORTEX_FILE *c_file)
+{
+  char *hit;
+
+  if((hit = strstr(buff, search)) == NULL)
+  {
+    fprintf(stderr, "cortex.c: cortex_read_bubble couldn't parse line "
+                    "[no '%s'] (%s:%lu)\n",
+            search, c_file->path, c_file->line_number);
+    return 0;
+  }
+
+  hit = hit + strlen(search);
+  
+  if(*hit == 'A' || *hit == 'C' || *hit == 'G' || *hit == 'T')
+  {
+    sscanf(hit, "%64s ", result);
+    hit += strlen(result);
+  }
+  else
+  {
+    result[0] = '\0';
+  }
+
+  while(isspace(*hit))
+  {
+    hit++;
+  }
+
+  return hit;
+}
+
+inline void _set_kmer_size(char *buffer, CORTEX_FILE *c_file)
+{
+  char *first_kmer = (char*)malloc(65*sizeof(char));
+  _parse_bubble_meta(buffer, "fst_kmer:", first_kmer, c_file);
+  c_file->kmer_size = (unsigned char)strlen(first_kmer);
+  free(first_kmer);
 }
 
 // If cannot open file or file is empty will print error and return NULL
 CORTEX_FILE* cortex_open(const char* path)
 {
-  CORTEX_FILE* cortex = (CORTEX_FILE*) malloc(sizeof(CORTEX_FILE));
+  CORTEX_FILE* c_file = (CORTEX_FILE*) malloc(sizeof(CORTEX_FILE));
 
   // Give initial values
-  cortex->buffer = string_buff_init(500); // Create read in buffer
-  cortex->line_number = 0;
-  cortex->filetype = UNKNOWN;
-  cortex->has_likelihoods = 0;
-  cortex->num_of_colours = 0;
+  c_file->buffer = string_buff_init(500); // Create read in buffer
+  c_file->line_number = 0;
+  c_file->filetype = UNKNOWN_FILE;
+  c_file->has_likelihoods = 0;
+  c_file->num_of_colours = 0;
+  c_file->kmer_size = 0;
+  c_file->fails_classifier_line = 0;
+  c_file->discovery_phase_line = 0;
 
   // Set path
   size_t path_len = strlen(path);
-  cortex->path = (char*) malloc(path_len+1);
-  strcpy(cortex->path, path);
-  cortex->path[path_len] = '\0';
+  c_file->path = (char*) malloc(path_len+1);
+  strcpy(c_file->path, path);
+  c_file->path[path_len] = '\0';
 
   // Open file
-  cortex->file = gzopen(path, "r");
+  c_file->file = gzopen(path, "r");
 
-  if(cortex->file == NULL)
+  if(c_file->file == NULL)
   {
     fprintf(stderr, "cortex.c: couldn't open file (%s)\n", path);
-    cortex_close(cortex);
+    cortex_close(c_file);
     return NULL;
   }
 
   // Whilst still reading but lines empty (_cortex_read_line does chomp)
   t_buf_pos chars_read;
   
-  while((chars_read = _cortex_read_line(cortex)) > 0 &&
-        string_buff_strlen(cortex->buffer) == 0) {}
+  while((chars_read = _cortex_read_line(c_file)) > 0 &&
+        string_buff_strlen(c_file->buffer) == 0);
 
   if(chars_read == 0)
   {
     fprintf(stderr, "cortex.c: file is empty (%s)\n", path);
-    cortex_close(cortex);
+    cortex_close(c_file);
     return NULL;
   }
 
-  if(strncasecmp(cortex->buffer->buff, "Colour", 6) == 0)
+  // Skip FAILS CLASSIFIER line
+  if(strncasecmp(c_file->buffer->buff, fail_msg, strlen(fail_msg)) == 0)
   {
-    cortex->filetype = BUBBLE_FILE;
-    cortex->has_likelihoods = 1;
+    c_file->fails_classifier_line = 1;
+
+    if(_cortex_read_line(c_file) == 0)
+    {
+      fprintf(stderr, "cortex.c: file is mostly empty (%s)\n", path);
+      cortex_close(c_file);
+      return NULL;
+    }
+  }
+
+  // Skip DISCOVERY PHASE line
+  if(strncasecmp(c_file->buffer->buff, discovery_msg, strlen(discovery_msg)) == 0)
+  {
+    c_file->discovery_phase_line = 1;
+
+    if(_cortex_read_line(c_file) == 0)
+    {
+      fprintf(stderr, "cortex.c: file is mostly empty (%s)\n", path);
+      cortex_close(c_file);
+      return NULL;
+    }
+  }
+
+  if(strncasecmp(c_file->buffer->buff, "Colour", strlen("Colour")) == 0)
+  {
+    c_file->filetype = BUBBLE_FILE;
+    c_file->has_likelihoods = 1;
   
     // Count lines begining [0-9] to count colours
-    while(_cortex_read_line(cortex) > 0)
+    while(_cortex_read_line(c_file) > 0)
     {
       // Ignore blank lines
-      if(string_buff_strlen(cortex->buffer) > 0)
+      if(string_buff_strlen(c_file->buffer) > 0)
       {
-        char first_char = cortex->buffer->buff[0];
+        char first_char = c_file->buffer->buff[0];
 
         if(first_char == '>')
         {
           break;
         }
-        else if(first_char >= '0' && first_char <= '9')
+        else if(isdigit(first_char))
         {
-          cortex->num_of_colours++;
+          c_file->num_of_colours++;
         }
       }
     }
 
+    // Get kmer size
+    _set_kmer_size(c_file->buffer->buff, c_file);
+
     // Reset file
-    gzrewind(cortex->file);
-    return cortex;
+    _cortex_read_reset(c_file);
+    return c_file;
   }
 
-  if(string_buff_get_char(cortex->buffer, 0) != '>')
+  if(string_buff_get_char(c_file->buffer, 0) != '>')
   {
     fprintf(stderr, "cortex.c: unrecognised line (%s:%lu)\n",
-            path, cortex->line_number);
+            path, c_file->line_number);
 
-    cortex_close(cortex);
+    cortex_close(c_file);
     return NULL;
   }
 
-  _cortex_read_line(cortex);
+  _cortex_read_line(c_file);
+  unsigned long second_line_len = string_buff_strlen(c_file->buffer);
 
-  _cortex_read_line(cortex);
-  char* third_line = string_buff_as_str(cortex->buffer);
+  _cortex_read_line(c_file);
+  char* third_line = string_buff_as_str(c_file->buffer);
 
-  _cortex_read_line(cortex);
-  char* fourth_line = string_buff_as_str(cortex->buffer);
+  _cortex_read_line(c_file);
+  char* fourth_line = string_buff_as_str(c_file->buffer);
 
   // else if third_line ends "_colour_0_kmer_coverages" AND
   //         fourth_line starts with a [0-9]
@@ -130,27 +220,43 @@ CORTEX_FILE* cortex_open(const char* path)
   char *expected_line = "_colour_0_kmer_coverages";
   char *third_line_search = strstr(third_line, expected_line);
 
-
   if(third_line_search != NULL &&
      third_line_search - third_line + strlen(expected_line)
        == strlen(third_line) &&
-     fourth_line[0] >= '0' && fourth_line[0] <= '9')
+     isdigit(fourth_line[0]))
   {
-    cortex->filetype = ALIGNMENT_FILE;
+    c_file->filetype = ALIGNMENT_FILE;
+    c_file->num_of_colours = 1;
 
     // read in pairs on lines
     //  and as long as the second one begins [0-9] then num_of_colours++
 
-    while(_cortex_read_line(cortex) > 0 &&
-          _cortex_read_line(cortex) > 0 &&
-          cortex->buffer->buff[0] >= '0' && cortex->buffer->buff[0] <= '9')
+    while(_cortex_read_line(c_file) > 0 && _cortex_read_line(c_file) > 0 &&
+          isdigit(c_file->buffer->buff[0]))
     {
-      cortex->num_of_colours++;
+      c_file->num_of_colours++;
     }
 
+    // Get kmer size
+    char* digit_start = fourth_line;
+    unsigned long num_of_kmers = 0;
+
+    while(isdigit(*digit_start))
+    {
+      num_of_kmers++;
+      while(isdigit(*digit_start)) {
+        digit_start++;
+      }
+      while(!isspace(*digit_start)) {
+        digit_start++;
+      }
+    }
+
+    c_file->kmer_size = (unsigned char)(second_line_len - num_of_kmers + 1);
+
     // Reset file
-    gzrewind(cortex->file);
-    return cortex;
+    _cortex_read_reset(c_file);
+    return c_file;
   }
   
   // else if third_line matches bubble path AND
@@ -160,76 +266,88 @@ CORTEX_FILE* cortex_open(const char* path)
 
   unsigned long var_num, length_5p;
   float mean_covg_5p;
-  unsigned long min_covg_5p, max_covg_5p, fst_covg_5p, lst_covg_5p;
-  char *fst_kmer_5p, *fst_r_5p, *fst_f_5p,
-       *lst_kmer_5p, *lst_r_5p, *lst_f_5p;
+  unsigned long min_covg_5p, max_covg_5p;
 
-  int bubble_items_read
-    = sscanf(third_line,
-             ">var_%lu_5p_flank length:%lu average_coverage: %f "
-             "min_coverage:%lu max_coverage:%lu "
-             "fst_coverage:%lu fst_kmer:%s fst_r:%s fst_f:%s "
-             "lst_coverage:%lu lst_kmer:%s lst_r:%s lst_f:%s",
-             &var_num, &length_5p, &mean_covg_5p,
-             &min_covg_5p, &max_covg_5p,
-             &fst_covg_5p, fst_kmer_5p, fst_r_5p, fst_f_5p,
-             &lst_covg_5p, lst_kmer_5p, lst_r_5p, lst_f_5p);
+  int items_read;
+
+  items_read  = sscanf(third_line,
+                       ">branch_%lu_1 length:%lu average_coverage: %f "
+                       "min_coverage:%lu max_coverage:%lu ",
+                       &var_num, &length_5p, &mean_covg_5p,
+                       &min_covg_5p, &max_covg_5p);
   
   char first_char = tolower(fourth_line[0]);
     
-  if(bubble_items_read == 13 &&
+  if(items_read == 5 &&
      (first_char == 'a' || first_char == 'c' ||
       first_char == 'g' || first_char == 't'))
   {
-    cortex->filetype = BUBBLE_FILE;
+    // Get kmer size
+    _set_kmer_size(third_line, c_file);
+
+    c_file->filetype = BUBBLE_FILE;
 
     // read 6 lines, then start reading in pairs
     int i;
-    for(i = 0; i < 6 && _cortex_read_line(cortex) > 0; i++);
+    for(i = 0; i < 6 && _cortex_read_line(c_file) > 0; i++);
 
     //  as long as the first line begins 'Covg ..' and
     //             the second line begins [0-9]
     //  then num_of_colours++
-    while(_cortex_read_line(cortex) > 0 &&
-          strncasecmp(cortex->buffer->buff, "Covg ", 5) == 0 &&
-          _cortex_read_line(cortex) > 0 &&
-          cortex->buffer->buff[0] >= '0' && cortex->buffer->buff[0] <= '9')
+    while(_cortex_read_line(c_file) > 0 &&
+          strncasecmp(c_file->buffer->buff, "Covg ", 5) == 0 &&
+          _cortex_read_line(c_file) > 0 && isdigit(c_file->buffer->buff[0]))
     {
-      cortex->num_of_colours++;
+      c_file->num_of_colours++;
     }
-    
+
     // Reset file
-    gzrewind(cortex->file);
-    return cortex;
+    _cortex_read_reset(c_file);
+    return c_file;
   }
 
-  fprintf(stderr, "cortex.c: Couldn't determine file type (%s:%lu)",
-          cortex->path, cortex->line_number);
+  fprintf(stderr, "cortex.c: Couldn't determine file type (%s:%lu)\n",
+          c_file->path, c_file->line_number);
 
-  cortex_close(cortex);
+  cortex_close(c_file);
   return NULL;
 }
 
-void cortex_close(CORTEX_FILE *cortex)
+void cortex_close(CORTEX_FILE *c_file)
 {
-  if(cortex->buffer != NULL)
+  if(c_file->buffer != NULL)
   {
-    string_buff_free(cortex->buffer);
+    string_buff_free(c_file->buffer);
   }
 
-  if(cortex->file != NULL)
+  if(c_file->file != NULL)
   {
-    gzclose(cortex->file);
+    gzclose(c_file->file);
   }
 
-  free(cortex->path);
-  free(cortex);
+  free(c_file->path);
+  free(c_file);
 }
 
+COLOUR_COVG* _create_colour_covgs()
+{
+  COLOUR_COVG* covgs = (COLOUR_COVG*) malloc(sizeof(COLOUR_COVG));
+  covgs->colour_covgs = (unsigned long*) malloc(200 * sizeof(unsigned long));
+  covgs->capacity = 200;
+  covgs->length = 0;
+
+  return covgs;
+}
+
+void _free_colour_covgs(COLOUR_COVG* covgs)
+{
+  free(covgs->colour_covgs);
+  free(covgs);
+}
 
 CORTEX_BUBBLE* cortex_bubble_create(const CORTEX_FILE *c_file)
 {
-  CORTEX_BUBBLE* bubble = (CORTEX_BUBBLE*) malloc(sizeof(bubble));
+  CORTEX_BUBBLE* bubble = (CORTEX_BUBBLE*) malloc(sizeof(CORTEX_BUBBLE));
 
   unsigned long col;
   int branch;
@@ -241,13 +359,33 @@ CORTEX_BUBBLE* cortex_bubble_create(const CORTEX_FILE *c_file)
   
     for(col = 0; col < c_file->num_of_colours; col++)
     {
-      COLOUR_COVG** covgs = bubble->branches_colour_covgs[branch] + col;
-
-      *covgs = (COLOUR_COVG*) malloc(sizeof(COLOUR_COVG));
-      (*covgs)->colour_covgs = (unsigned long*) malloc(200 * sizeof(unsigned long));
-      (*covgs)->capacity = 200;
-      (*covgs)->length = 0;
+      bubble->branches_colour_covgs[branch][col] = _create_colour_covgs();
     }
+  }
+
+  bubble->branches[0].seq = string_buff_init(200);
+  bubble->branches[1].seq = string_buff_init(200);
+  bubble->flank_5p.seq = string_buff_init(200);
+  bubble->flank_3p.seq = string_buff_init(200);
+
+  if(bubble->branches[0].seq == NULL)
+  {
+    fprintf(stderr, "cortex.c: mem fail\n");
+    exit(EXIT_FAILURE);
+  }
+
+  bubble->calls
+    = (HETEROGENEITY*) malloc(c_file->num_of_colours * sizeof(HETEROGENEITY));
+
+  bubble->llk_hom_br1 = (float*) malloc(c_file->num_of_colours * sizeof(float));
+  bubble->llk_het     = (float*) malloc(c_file->num_of_colours * sizeof(float));
+  bubble->llk_hom_br2 = (float*) malloc(c_file->num_of_colours * sizeof(float));
+
+  if(bubble->llk_hom_br1 == NULL || bubble->llk_het == NULL ||
+     bubble->llk_hom_br2 == NULL)
+  {
+    fprintf(stderr, "cortex.c: Couldn't allocate enough memory\n");
+    exit(EXIT_FAILURE);
   }
 
   return bubble;
@@ -262,16 +400,53 @@ void cortex_bubble_free(CORTEX_BUBBLE* bubble, const CORTEX_FILE *c_file)
   {
     for(col = 0; col < c_file->num_of_colours; col++)
     {
-      COLOUR_COVG** covgs = bubble->branches_colour_covgs[branch] + col;
-
-      free((*covgs)->colour_covgs);
-      free(*covgs);
+      _free_colour_covgs(bubble->branches_colour_covgs[branch][col]);
     }
 
     free(bubble->branches_colour_covgs[branch]);
   }
 
+  free(bubble->calls);
+  free(bubble->llk_hom_br1);
+  free(bubble->llk_het);
+  free(bubble->llk_hom_br2);
+
   free(bubble);
+}
+
+CORTEX_ALIGNMENT* cortex_alignment_create(const CORTEX_FILE *c_file)
+{
+  CORTEX_ALIGNMENT* alignment
+    = (CORTEX_ALIGNMENT*) malloc(sizeof(CORTEX_ALIGNMENT));
+
+  alignment->name = string_buff_init(200);
+  alignment->seq = string_buff_init(200);
+
+  alignment->colour_covgs
+    = (COLOUR_COVG**) malloc(c_file->num_of_colours * sizeof(COLOUR_COVG*));
+
+  unsigned long col;
+  for(col = 0; col < c_file->num_of_colours; col++)
+  {
+    alignment->colour_covgs[col] = _create_colour_covgs();
+  }
+
+  return alignment;
+}
+
+void cortex_alignment_free(CORTEX_ALIGNMENT* alignment, const CORTEX_FILE *c_file)
+{
+  string_buff_free(alignment->name);
+  string_buff_free(alignment->seq);
+
+  unsigned long col;
+  for(col = 0; col < c_file->num_of_colours; col++)
+  {
+    _free_colour_covgs(alignment->colour_covgs[col]);
+  }
+
+  free(alignment->colour_covgs);
+  free(alignment);
 }
 
 // line of numbers should have bean already read into c_file->buffer
@@ -291,23 +466,29 @@ char _read_covg(CORTEX_FILE *c_file, COLOUR_COVG *covgs, size_t required_size)
 
   char* pos = c_file->buffer->buff;
   char* new_pos;
-  long value;
+  unsigned long value;
 
-  while((value = strtol(pos, &new_pos, 10)) && pos != new_pos)
+  value = strtoul(pos, &new_pos, 10);
+
+  while(pos != new_pos)
   {
     if(covgs->length == covgs->capacity)
     {
-      fprintf(stderr, "cortex.c: more numbers than expected (%s:%lu)\n",
-              c_file->path, c_file->line_number);
+      fprintf(stderr, "cortex.c: more numbers than expected [%lu] (%s:%lu)\n",
+              required_size, c_file->path, c_file->line_number);
     }
 
     covgs->colour_covgs[covgs->length++] = value;
+
+    pos = new_pos;
+    value = strtoul(pos, &new_pos, 10);
   }
 
   if(!string_is_all_whitespace(new_pos))
   {
-    fprintf(stderr, "cortex.c: unexpected content on the end of line (%s:%lu)\n",
-            c_file->path, c_file->line_number);
+    fprintf(stderr, "cortex.c: unexpected content on the end of line ['%s'] "
+                    "(%s:%lu)\n",
+            new_pos, c_file->path, c_file->line_number);
   }
 
   return 1;
@@ -317,88 +498,204 @@ char _read_covg(CORTEX_FILE *c_file, COLOUR_COVG *covgs, size_t required_size)
 // Alignments
 //
 
-char cortex_read_alignment(CORTEX_FILE* c_file, CORTEX_ALIGNMENT* alignment)
+char cortex_read_alignment(CORTEX_ALIGNMENT* alignment, CORTEX_FILE* c_file)
 {
   if(c_file->filetype != ALIGNMENT_FILE)
   {
     fprintf(stderr, "cortex.c: cortex_read_alignment cannot read from "
-                    "bubble file (%s:%lu)\n", c_file->path, c_file->line_number);
+                    "alignment file (%s:%lu)\n",
+            c_file->path, c_file->line_number);
 
+    return 0;
+  }
+
+  // Read until not whiteline
+  while(string_buff_strlen(c_file->buffer) == 0 &&
+        _cortex_read_line(c_file) > 0);
+
+  if(string_buff_strlen(c_file->buffer) == 0)
+  {
+    // EOF
     return 0;
   }
 
   if(string_buff_get_char(c_file->buffer, 0) != '>')
   {
-    fprintf(stderr, "cortex.c: cortex_read_alignment cannot read from "
-                    "bubble file (%s:%lu)\n", c_file->path, c_file->line_number);
+    fprintf(stderr, "cortex.c: cortex_read_alignment line doesn't start '>' "
+                    "(%s:%lu)\n",
+            c_file->path, c_file->line_number);
 
     return 0;
   }
 
   string_buff_copy(alignment->name, 0, c_file->buffer, 1,
                    string_buff_strlen(c_file->buffer));
-  _cortex_read_line(c_file);
+
+  if(_cortex_read_line(c_file) == 0)
+  {
+    fprintf(stderr, "cortex.c: alignment ended early (%s:%lu)\n",
+            c_file->path, c_file->line_number);
+    return 0;
+  }
 
   string_buff_copy(alignment->seq, 0, c_file->buffer, 0,
                    string_buff_strlen(c_file->buffer));
-  _cortex_read_line(c_file);
 
   unsigned long col;
   for(col = 0; col < c_file->num_of_colours; col++)
   {
-    _read_covg(c_file, alignment->colour_covgs+col,
+    if(_cortex_read_line(c_file) == 0 || _cortex_read_line(c_file) == 0)
+    {
+      fprintf(stderr, "cortex.c: alignment ended early (%s:%lu)\n",
+              c_file->path, c_file->line_number);
+      return 0;
+    }
+
+    _read_covg(c_file, alignment->colour_covgs[col],
                string_buff_strlen(alignment->seq));
   }
+
+  _cortex_read_line(c_file);
 
   return 1;
 }
 
-void cortex_print_alignment(const CORTEX_ALIGNMENT* alignment)
+void cortex_print_alignment(const CORTEX_ALIGNMENT* alignment,
+                            const CORTEX_FILE* c_file)
 {
-  // DEV:
+  printf(">%s\n", alignment->name->buff);
+  printf("%s\n", alignment->seq->buff);
+
+  unsigned long col, covgs_i;
+
+  for(col = 0; col < c_file->num_of_colours; col++)
+  {
+    COLOUR_COVG* covgs = alignment->colour_covgs[col];
+
+    printf(">%s_colour_%lu_kmer_coverages\n", alignment->name->buff, col);
+    printf("%lu", covgs->colour_covgs[0]);
+
+    for(covgs_i = 0; covgs_i < covgs->length; covgs_i++)
+    {
+      printf(" %lu", covgs->colour_covgs[covgs_i]);
+    }
+
+    printf("\n");
+  }
 }
 
 //
 // Bubbles
 //
 
+void _print_bubble_path(const unsigned long var_num,
+                        const CORTEX_BUBBLE_PATH *bp,
+                        enum PATH_TYPE path_type)
+{
+  switch (path_type)
+  {
+    case FLANK_5P:
+      printf(">var_%lu_5p_flank ", var_num);
+      break;
+    case BRANCH1:
+      printf(">branch_%lu_1 ", var_num);
+      break;
+    case BRANCH2:
+      printf(">branch_%lu_2 ", var_num);
+      break;
+    case FLANK_3P:
+      printf(">var_%lu_3p_flank ", var_num);
+      break;
+    default:
+      break;
+  }
+
+  printf("length:%lu average_coverage: %f min_coverage:%lu max_coverage:%lu "
+         "fst_coverage:%lu fst_kmer:%s fst_r:%s fst_f:%s "
+         "lst_coverage:%lu lst_kmer:%s lst_r:%s lst_f:%s\n",
+         bp->seq_length, bp->mean_covg, bp->min_covg, bp->max_covg,
+         bp->fst_covg, bp->fst_kmer, bp->fst_r, bp->fst_f,
+         bp->lst_covg, bp->lst_kmer, bp->lst_r, bp->lst_f);
+
+  printf("%s\n", bp->seq->buff);
+}
+
 // Returns 1 (success) or 0 (failure).  Path argument is where to store result
 char _read_bubble_path(CORTEX_FILE *c_file, CORTEX_BUBBLE_PATH *path)
 {
-  unsigned long var_num;
+  // Line looks like:
+  // >var_1_5p_flank length:50 average_coverage: 2.00 min_coverage:2 
+  // max_coverage:2 fst_coverage:2 fst_kmer:GACCATAGCAAGGACAC fst_r: fst_f:C 
+  // lst_coverage:2 lst_kmer:ACGTTCAACGCCAAGGG lst_r:C lst_f:AT 
 
-  int bubble_items_read
+  char var_name[100];
+
+  int items_read
     = sscanf(c_file->buffer->buff,
-             ">var_%lu_5p_flank length:%lu average_coverage: %f "
+             ">%50s length:%lu average_coverage: %f "
              "min_coverage:%lu max_coverage:%lu "
-             "fst_coverage:%lu fst_kmer:%s fst_r:%s fst_f:%s "
-             "lst_coverage:%lu lst_kmer:%s lst_r:%s lst_f:%s",
-             &var_num, &path->seq_length, &path->mean_covg,
-             &path->min_covg, &path->max_covg,
-             &path->fst_covg, path->fst_kmer, path->fst_r, path->lst_r,
-             &path->lst_covg, path->lst_kmer, path->lst_r, path->lst_f);
+             "fst_coverage:%lu fst_kmer:%s ",
+             var_name, &path->seq_length, &path->mean_covg,
+             &path->min_covg, &path->max_covg, &path->fst_covg, path->fst_kmer);
 
-  if(bubble_items_read != 13)
+  if(items_read != 7)
   {
     fprintf(stderr, "cortex.c: cortex_read_bubble couldn't parse line "
-                    "(%s:%lu)\n", c_file->path, c_file->line_number);
+                    "[%i items] (%s:%lu)\n",
+            items_read, c_file->path, c_file->line_number);
     return 0;
   }
 
-  // Read sequence line
-  _cortex_read_line(c_file);
+  // Parse var_name
+  unsigned long var_num;
+  
+  if(!sscanf(var_name, "var_%lu_5p_flank", &var_num) && 
+     !sscanf(var_name, "branch_%lu_1", &var_num) && 
+     !sscanf(var_name, "branch_%lu_2", &var_num) && 
+     !sscanf(var_name, "var_%lu_3p_flank", &var_num))
+  {
+    fprintf(stderr, "cortex.c: cortex_read_bubble couldn't parse name "
+                    "['%s'] (%s:%lu)\n",
+            var_name, c_file->path, c_file->line_number);
+    return 0;
+  }
 
-  if(gzeof(c_file->file))
+  // Read the rest of the line
+  char* end;
+  
+  end = _parse_bubble_meta(c_file->buffer->buff, "fst_r:", path->fst_r, c_file);
+  end = _parse_bubble_meta(end, "fst_f:", path->fst_f, c_file);
+
+  items_read = sscanf(end, "lst_coverage:%lu lst_kmer:%s ",
+                      &path->lst_covg, path->lst_kmer);
+
+  if(items_read != 2)
+  {
+    fprintf(stderr, "cortex.c: cortex_read_bubble couldn't parse line "
+                    "[%i items] (%s:%lu)\n",
+            items_read, c_file->path, c_file->line_number);
+    return 0;
+  }
+
+  end = _parse_bubble_meta(end, "lst_r:", path->lst_r, c_file);
+  end = _parse_bubble_meta(end, "lst_f:", path->lst_f, c_file);
+
+  // Read sequence line
+  if(_cortex_read_line(c_file) == 0)
   {
     return 0;
   }
 
-  path->seq = string_buff_as_str(c_file->buffer);
+  string_buff_copy(path->seq, 0, c_file->buffer, 0,
+                   string_buff_strlen(c_file->buffer));
+
+  // Load up next line
+  _cortex_read_line(c_file);
 
   return 1;
 }
 
-char cortex_read_bubble(CORTEX_FILE* c_file, CORTEX_BUBBLE* bubble)
+char cortex_read_bubble(CORTEX_BUBBLE* bubble, CORTEX_FILE* c_file)
 {
   if(c_file->filetype != BUBBLE_FILE)
   {
@@ -409,9 +706,116 @@ char cortex_read_bubble(CORTEX_FILE* c_file, CORTEX_BUBBLE* bubble)
     return 0;
   }
 
+  // Read until not whiteline
+  while(string_buff_strlen(c_file->buffer) == 0 &&
+        _cortex_read_line(c_file) > 0);
+
+  if(string_buff_strlen(c_file->buffer) == 0)
+  {
+    // EOF
+    return 0;
+  }
+
+  if((c_file->fails_classifier_line && (_cortex_read_line(c_file) == 0)) ||
+     (c_file->discovery_phase_line && (_cortex_read_line(c_file) == 0)))
+  {
+    fprintf(stderr, "cortex.c: premature end of call start (%s:%lu)\n",
+            c_file->path, c_file->line_number);
+    return 0;
+  }
+
   if(c_file->has_likelihoods)
   {
-    // DEV: read in likelihoods
+    // Read in likelihoods
+    if(strncasecmp(c_file->buffer->buff, "Colour", strlen("Colour")) != 0)
+    {
+      fprintf(stderr, "cortex.c: premature end of file likelihoods (%s:%lu)\n",
+                c_file->path, c_file->line_number);
+      return 0;
+    }
+
+    unsigned long col;
+    for(col = 0; col < c_file->num_of_colours; col++)
+    {
+      if(_cortex_read_line(c_file) == 0 || !isdigit(c_file->buffer->buff[0]))
+      {
+        fprintf(stderr, "cortex.c: premature end of call likelihoods (%s:%lu)\n",
+                c_file->path, c_file->line_number);
+        return 0;
+      }
+
+      char *str = c_file->buffer->buff;
+      char *str_end;
+      unsigned long col2 = strtoul(str, &str_end, 10);
+      
+      if(str == str_end || *str_end != '\t' || col2 != col)
+      {
+        fprintf(stderr, "cortex.c: invalid likelihood line (a) (%s:%lu)\n",
+                c_file->path, c_file->line_number);
+        return 0;
+      }
+
+      str = str_end+1;
+
+      HETEROGENEITY call = UNKNOWN_HET;
+
+      if(strncasecmp(str, "HOM1", strlen("HOM1")) == 0)
+      {
+        call = HOM1;
+      }
+      else if(strncasecmp(str, "HET", strlen("HET")) == 0)
+      {
+        call = HET;
+      }
+      else if(strncasecmp(str, "HOM2", strlen("HOM2")) == 0)
+      {
+        call = HOM2;
+      }
+      else
+      {
+        fprintf(stderr, "cortex.c: unexpected likelihood line ['%s'] (%s:%lu)\n",
+                str, c_file->path, c_file->line_number);
+        return 0;
+      }
+      
+      str = strchr(str, '\t');
+      
+      float col_llk_hom_br1 = strtof(str, &str_end);
+
+      if(str == str_end || *str_end != '\t')
+      {
+        fprintf(stderr, "cortex.c: invalid likelihood line ['%s'] (%s:%lu)\n",
+                str, c_file->path, c_file->line_number);
+      }
+
+      str = str_end+1;
+
+      float col_llk_het = strtof(str, &str_end);
+
+      if(str == str_end || *str_end != '\t')
+      {
+        fprintf(stderr, "cortex.c: invalid likelihood line ['%s'] (%s:%lu)\n",
+                str, c_file->path, c_file->line_number);
+      }
+
+      str = str_end+1;
+
+      float col_llk_hom_br2 = strtof(str, &str_end);
+
+      if(str == str_end)
+      {
+        fprintf(stderr, "cortex.c: invalid likelihood line ['%s'] (%s:%lu)\n",
+                str, c_file->path, c_file->line_number);
+      }
+
+      bubble->calls[col] = call;
+      bubble->llk_hom_br1[col] = col_llk_hom_br1;
+      bubble->llk_het[col] = col_llk_het;
+      bubble->llk_hom_br2[col] = col_llk_hom_br2;
+    }
+  
+    // Read first line of the bubble
+    _cortex_read_line(c_file);
   }
 
   unsigned long var_num1 = _read_bubble_path(c_file, &bubble->flank_5p);
@@ -460,11 +864,10 @@ char cortex_read_bubble(CORTEX_FILE* c_file, CORTEX_BUBBLE* bubble)
       }
 
       // Get coverage of branch 'branch' on colour 'col'
-      COLOUR_COVG* colour_covgs = *bubble->branches_colour_covgs[branch] + col;
-      _read_covg(c_file, colour_covgs, branch_length);
+      _read_covg(c_file, bubble->branches_colour_covgs[branch][col], branch_length);
     }
 
-    _cortex_read_line(c_file) == 0);
+    _cortex_read_line(c_file);
   }
 
   // Read until not whiteline
@@ -474,7 +877,80 @@ char cortex_read_bubble(CORTEX_FILE* c_file, CORTEX_BUBBLE* bubble)
   return 1;
 }
 
-void cortex_print_bubble(const CORTEX_BUBBLE* bubble)
+void cortex_print_bubble(const CORTEX_BUBBLE* bubble, const CORTEX_FILE *c_file)
 {
-  // DEV:
+  if(c_file->fails_classifier_line)
+  {
+    printf("FAILS CLASSIFIER: fits repeat model better than variation model\n");
+  }
+
+  if(c_file->discovery_phase_line)
+  {
+    printf("DISCOVERY PHASE:  VARIANT vs REPEAT MODEL "
+           "LOG_LIKELIHOODS:	llk_var:nan	llk_rep:-inf\n");
+  }
+
+  if(c_file->has_likelihoods)
+  {
+    printf("Colour/sample	GT_call	llk_hom_br1	llk_het	llk_hom_br2\n");
+    
+    unsigned long col;
+    for(col = 0; col < c_file->num_of_colours; col++)
+    {
+      char *call;
+      switch (bubble->calls[col])
+      {
+        case HOM1:
+          call = "HOM1";
+          break;
+        case HET:
+          call = "HET";
+          break;
+        case HOM2:
+          call = "HOM2";
+          break;
+        default:
+          fprintf(stderr, "cortex.c: unknown call heterogeneity [%i] (%s:%lu)\n",
+                  bubble->calls[col], c_file->path, c_file->line_number);
+          break;
+      }
+
+      printf("%lu	%s	%.2f	%.2f	%.2f\n", col, call,
+             bubble->llk_hom_br1[col], bubble->llk_het[col],
+             bubble->llk_hom_br2[col]);
+    }
+  }
+
+  _print_bubble_path(bubble->var_num, &bubble->flank_5p, FLANK_5P);
+  _print_bubble_path(bubble->var_num, &bubble->branches[0], BRANCH1);
+  _print_bubble_path(bubble->var_num, &bubble->branches[1], BRANCH2);
+  _print_bubble_path(bubble->var_num, &bubble->flank_3p, FLANK_3P);
+  
+  printf("\n\n");
+  
+  // Print branches
+  int branch;
+  unsigned long col, covgs_i;
+
+  for(branch = 0; branch < 2; branch++)
+  {
+    printf("branch%i coverages\n", branch);
+    
+    for(col = 0; col < c_file->num_of_colours; col++)
+    {
+      COLOUR_COVG* covgs = bubble->branches_colour_covgs[branch][col];
+
+      printf("Covg in Col %lu:\n", col);
+      printf("%lu", covgs->colour_covgs[0]);
+
+      for(covgs_i = 0; covgs_i < covgs->length; covgs_i++)
+      {
+        printf(" %lu", covgs->colour_covgs[covgs_i]);
+      }
+
+      printf("\n");
+    }
+  }
+  
+  printf("\n\n");
 }

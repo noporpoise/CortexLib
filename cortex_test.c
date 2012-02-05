@@ -43,14 +43,29 @@ int main(int argc, char* argv[])
     return EXIT_FAILURE;
   }
 
-  CORTEX_BUBBLE* bubble = cortex_bubble_create(cortex_file);
-
-  while(cortex_read_bubble(cortex_file, bubble))
+  if(cortex_file->filetype == BUBBLE_FILE)
   {
-    cortex_print_bubble(bubble);
+    CORTEX_BUBBLE* bubble = cortex_bubble_create(cortex_file);
+
+    while(cortex_read_bubble(bubble, cortex_file))
+    {
+      cortex_print_bubble(bubble, cortex_file);
+    }
+  
+    cortex_bubble_free(bubble, cortex_file);
+  }
+  else if(cortex_file->filetype == ALIGNMENT_FILE)
+  {
+    CORTEX_ALIGNMENT* alignment = cortex_alignment_create(cortex_file);
+    
+    while(cortex_read_alignment(alignment, cortex_file))
+    {
+      cortex_print_alignment(alignment, cortex_file);
+    }
+    
+    cortex_alignment_free(alignment, cortex_file);
   }
 
-  cortex_bubble_free(bubble, cortex_file);
   cortex_close(cortex_file);
 
   return EXIT_SUCCESS;

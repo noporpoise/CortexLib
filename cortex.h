@@ -27,8 +27,10 @@
 
 #include "string_buffer.h"
 
-enum CORTEX_FILE_TYPE {UNKNOWN,BUBBLE_FILE,ALIGNMENT_FILE};
+enum CORTEX_FILE_TYPE {UNKNOWN_FILE,BUBBLE_FILE,ALIGNMENT_FILE};
+enum HETEROGENEITY {UNKNOWN_HET,HOM1,HOM2,HET};
 
+typedef enum HETEROGENEITY HETEROGENEITY;
 typedef struct CORTEX_FILE CORTEX_FILE;
 typedef struct CORTEX_ALIGNMENT CORTEX_ALIGNMENT;
 typedef struct CORTEX_BUBBLE CORTEX_BUBBLE;
@@ -45,8 +47,9 @@ struct CORTEX_FILE
 
   // Syntax of the file
   enum CORTEX_FILE_TYPE filetype;
-  char has_likelihoods;
   unsigned long num_of_colours;
+  unsigned char has_likelihoods, kmer_size,
+                fails_classifier_line, discovery_phase_line;
 };
 
 struct COLOUR_COVG
@@ -58,22 +61,27 @@ struct COLOUR_COVG
 struct CORTEX_ALIGNMENT
 {
   STRING_BUFFER *name, *seq;
-  COLOUR_COVG *colour_covgs;
+  COLOUR_COVG **colour_covgs;
 };
 
 struct CORTEX_BUBBLE_PATH
 {
-  char *seq;
+  STRING_BUFFER *seq;
   size_t seq_length;
   float mean_covg;
   unsigned long min_covg, max_covg, fst_covg, lst_covg;
-  char *fst_kmer, *fst_r, *fst_f, *lst_kmer, *lst_r, *lst_f;
+  char fst_kmer[65], fst_r[65], fst_f[65], lst_kmer[65], lst_r[65], lst_f[65];
 };
 
 struct CORTEX_BUBBLE
 {
   unsigned long var_num;
-  CORTEX_BUBBLE_PATH flank_5p, flank_3p, branches[2];
+  CORTEX_BUBBLE_PATH flank_5p, flank_3p;
+  CORTEX_BUBBLE_PATH branches[2];
+
+  // Arrays of colours
+  HETEROGENEITY *calls;
+  float *llk_hom_br1, *llk_het, *llk_hom_br2;
 
   // Array of pointers to arrays of covgs
   // colour_covgs[colour][kmer_index] = coverage
@@ -83,13 +91,19 @@ struct CORTEX_BUBBLE
 CORTEX_FILE* cortex_open(const char *path);
 void cortex_close(CORTEX_FILE *cortex);
 
+// Reading bubbles
 CORTEX_BUBBLE* cortex_bubble_create(const CORTEX_FILE *c_file);
 void cortex_bubble_free(CORTEX_BUBBLE* bubble, const CORTEX_FILE *c_file);
 
-char cortex_read_alignment(CORTEX_FILE* file, CORTEX_ALIGNMENT* alignment);
-void cortex_print_alignment(const CORTEX_ALIGNMENT* alignment);
+char cortex_read_bubble(CORTEX_BUBBLE* bubble, CORTEX_FILE* file);
+void cortex_print_bubble(const CORTEX_BUBBLE* bubble, const CORTEX_FILE *c_file);
 
-char cortex_read_bubble(CORTEX_FILE* file, CORTEX_BUBBLE* bubble);
-void cortex_print_bubble(const CORTEX_BUBBLE* bubble);
+// Reading alignments
+CORTEX_ALIGNMENT* cortex_alignment_create(const CORTEX_FILE *c_file);
+void cortex_alignment_free(CORTEX_ALIGNMENT* alignment, const CORTEX_FILE *c_file);
+
+char cortex_read_alignment(CORTEX_ALIGNMENT* alignment, CORTEX_FILE* file);
+void cortex_print_alignment(const CORTEX_ALIGNMENT* alignment,
+                            const CORTEX_FILE* file);
 
 #endif
