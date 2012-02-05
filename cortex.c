@@ -949,9 +949,9 @@ void cortex_print_bubble(const CORTEX_BUBBLE* bubble, const CORTEX_FILE *c_file)
   _print_bubble_path(bubble->var_num, &bubble->branches[0], BRANCH1);
   _print_bubble_path(bubble->var_num, &bubble->branches[1], BRANCH2);
   _print_bubble_path(bubble->var_num, &bubble->flank_3p, FLANK_3P);
-  
+
   printf("\n\n");
-  
+
   // Print branches
   int branch;
   unsigned long col, covgs_i;
@@ -975,6 +975,6 @@ void cortex_print_bubble(const CORTEX_BUBBLE* bubble, const CORTEX_FILE *c_file)
       printf("\n");
     }
   }
-  
+
   printf("\n\n");
 }
