@@ -255,6 +255,8 @@ CORTEX_FILE* cortex_open(const char* path)
     c_file->kmer_size = (unsigned char)(second_line_len - num_of_kmers + 1);
 
     // Reset file
+    free(third_line);
+    free(fourth_line);
     _cortex_read_reset(c_file);
     return c_file;
   }
@@ -275,7 +277,7 @@ CORTEX_FILE* cortex_open(const char* path)
                        "min_coverage:%lu max_coverage:%lu ",
                        &var_num, &length_5p, &mean_covg_5p,
                        &min_covg_5p, &max_covg_5p);
-  
+
   char first_char = tolower(fourth_line[0]);
     
   if(items_read == 5 &&
@@ -302,6 +304,8 @@ CORTEX_FILE* cortex_open(const char* path)
     }
 
     // Reset file
+    free(third_line);
+    free(fourth_line);
     _cortex_read_reset(c_file);
     return c_file;
   }
@@ -309,6 +313,8 @@ CORTEX_FILE* cortex_open(const char* path)
   fprintf(stderr, "cortex.c: Couldn't determine file type (%s:%lu)\n",
           c_file->path, c_file->line_number);
 
+  free(third_line);
+  free(fourth_line);
   cortex_close(c_file);
   return NULL;
 }
@@ -363,10 +369,10 @@ CORTEX_BUBBLE* cortex_bubble_create(const CORTEX_FILE *c_file)
     }
   }
 
-  bubble->branches[0].seq = string_buff_init(200);
-  bubble->branches[1].seq = string_buff_init(200);
   bubble->flank_5p.seq = string_buff_init(200);
   bubble->flank_3p.seq = string_buff_init(200);
+  bubble->branches[0].seq = string_buff_init(200);
+  bubble->branches[1].seq = string_buff_init(200);
 
   if(bubble->branches[0].seq == NULL)
   {
@@ -405,6 +411,11 @@ void cortex_bubble_free(CORTEX_BUBBLE* bubble, const CORTEX_FILE *c_file)
 
     free(bubble->branches_colour_covgs[branch]);
   }
+
+  string_buff_free(bubble->flank_5p.seq);
+  string_buff_free(bubble->flank_3p.seq);
+  string_buff_free(bubble->branches[0].seq);
+  string_buff_free(bubble->branches[1].seq);
 
   free(bubble->calls);
   free(bubble->llk_hom_br1);
