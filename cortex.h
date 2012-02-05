@@ -49,7 +49,7 @@ struct CORTEX_FILE
   enum CORTEX_FILE_TYPE filetype;
   unsigned long num_of_colours;
   unsigned char has_likelihoods, kmer_size,
-                fails_classifier_line, discovery_phase_line;
+                fails_classifier_line, discovery_phase_line, is_diploid;
 };
 
 struct COLOUR_COVG

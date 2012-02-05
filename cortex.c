@@ -103,9 +103,11 @@ CORTEX_FILE* cortex_open(const char* path)
   c_file->buffer = string_buff_init(500); // Create read in buffer
   c_file->line_number = 0;
   c_file->filetype = UNKNOWN_FILE;
-  c_file->has_likelihoods = 0;
-  c_file->num_of_colours = 0;
   c_file->kmer_size = 0;
+  c_file->num_of_colours = 0;
+  // Likelihoods
+  c_file->has_likelihoods = 0;
+  c_file->is_diploid = 0;
   c_file->fails_classifier_line = 0;
   c_file->discovery_phase_line = 0;
 
@@ -745,6 +747,12 @@ char cortex_read_bubble(CORTEX_BUBBLE* bubble, CORTEX_FILE* c_file)
       return 0;
     }
 
+    // Check if diploid (ie. has het. option)
+    if(strstr(c_file->buffer->buff, "llk_het") != NULL)
+    {
+      c_file->is_diploid = 1;
+    }
+
     unsigned long col;
     for(col = 0; col < c_file->num_of_colours; col++)
     {
@@ -755,18 +763,32 @@ char cortex_read_bubble(CORTEX_BUBBLE* bubble, CORTEX_FILE* c_file)
         return 0;
       }
 
-      char *str = c_file->buffer->buff;
-      char *str_end;
-      unsigned long col2 = strtoul(str, &str_end, 10);
+      unsigned long col2;
+      char str[6];
+      float col_llk_hom_br1, col_llk_het, col_llk_hom_br2;
+
+      int items_read;
       
-      if(str == str_end || *str_end != '\t' || col2 != col)
+      if(c_file->is_diploid)
       {
-        fprintf(stderr, "cortex.c: invalid likelihood line (a) (%s:%lu)\n",
-                c_file->path, c_file->line_number);
-        return 0;
+        items_read = sscanf(c_file->buffer->buff, "%lu %4s %f %f %f",
+                            &col2, str, &col_llk_hom_br1, &col_llk_het,
+                            &col_llk_hom_br2);
+      }
+      else
+      {
+        // haploid - can't be het
+        items_read = sscanf(c_file->buffer->buff, "%lu %4s %f %f",
+                            &col2, str, &col_llk_hom_br1, &col_llk_hom_br2);
       }
 
-      str = str_end+1;
+      if((c_file->is_diploid && items_read != 5) ||
+         (!c_file->is_diploid && items_read != 4))
+      {
+        fprintf(stderr, "cortex.c: invalid likelihood line ['%s'] (%s:%lu)\n",
+                c_file->buffer->buff, c_file->path, c_file->line_number);
+        return 0;
+      }
 
       HETEROGENEITY call = UNKNOWN_HET;
 
@@ -788,40 +810,15 @@ char cortex_read_bubble(CORTEX_BUBBLE* bubble, CORTEX_FILE* c_file)
                 str, c_file->path, c_file->line_number);
         return 0;
       }
-      
-      str = strchr(str, '\t');
-      
-      float col_llk_hom_br1 = strtof(str, &str_end);
-
-      if(str == str_end || *str_end != '\t')
-      {
-        fprintf(stderr, "cortex.c: invalid likelihood line ['%s'] (%s:%lu)\n",
-                str, c_file->path, c_file->line_number);
-      }
-
-      str = str_end+1;
-
-      float col_llk_het = strtof(str, &str_end);
-
-      if(str == str_end || *str_end != '\t')
-      {
-        fprintf(stderr, "cortex.c: invalid likelihood line ['%s'] (%s:%lu)\n",
-                str, c_file->path, c_file->line_number);
-      }
-
-      str = str_end+1;
-
-      float col_llk_hom_br2 = strtof(str, &str_end);
-
-      if(str == str_end)
-      {
-        fprintf(stderr, "cortex.c: invalid likelihood line ['%s'] (%s:%lu)\n",
-                str, c_file->path, c_file->line_number);
-      }
 
       bubble->calls[col] = call;
       bubble->llk_hom_br1[col] = col_llk_hom_br1;
-      bubble->llk_het[col] = col_llk_het;
+
+      if(c_file->is_diploid)
+      {
+        bubble->llk_het[col] = col_llk_het;
+      }
+
       bubble->llk_hom_br2[col] = col_llk_hom_br2;
     }
   
@@ -903,8 +900,15 @@ void cortex_print_bubble(const CORTEX_BUBBLE* bubble, const CORTEX_FILE *c_file)
 
   if(c_file->has_likelihoods)
   {
-    printf("Colour/sample	GT_call	llk_hom_br1	llk_het	llk_hom_br2\n");
-    
+    if(c_file->is_diploid)
+    {
+      printf("Colour/sample	GT_call	llk_hom_br1	llk_het	llk_hom_br2\n");
+    }
+    else
+    {
+      printf("Colour/sample	GT_call	llk_hom_br1	llk_hom_br2\n");
+    }
+
     unsigned long col;
     for(col = 0; col < c_file->num_of_colours; col++)
     {
@@ -926,9 +930,18 @@ void cortex_print_bubble(const CORTEX_BUBBLE* bubble, const CORTEX_FILE *c_file)
           break;
       }
 
-      printf("%lu	%s	%.2f	%.2f	%.2f\n", col, call,
-             bubble->llk_hom_br1[col], bubble->llk_het[col],
-             bubble->llk_hom_br2[col]);
+      if(c_file->is_diploid)
+      {
+        // Has het
+        printf("%lu	%s	%.2f	%.2f	%.2f\n", col, call,
+               bubble->llk_hom_br1[col], bubble->llk_het[col],
+               bubble->llk_hom_br2[col]);
+      }
+      else
+      {
+        printf("%lu	%s	%.2f	%.2f\n", col, call,
+               bubble->llk_hom_br1[col],  bubble->llk_hom_br2[col]);
+      }
     }
   }
 
