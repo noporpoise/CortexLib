@@ -88,21 +88,37 @@ struct CORTEX_BUBBLE
   COLOUR_COVG **branches_colour_covgs[2];
 };
 
+// path can point to a .colour_covgs or .colour_covgs.gzip file
 CORTEX_FILE* cortex_open(const char *path);
+// cortex_close frees CORTEX_FILE
 void cortex_close(CORTEX_FILE *cortex);
 
+//
 // Reading bubbles
+//
+
+// Before reading any bubbles allocate memory for the result with:
 CORTEX_BUBBLE* cortex_bubble_create(const CORTEX_FILE *c_file);
+// Once you're done reading, free memory
 void cortex_bubble_free(CORTEX_BUBBLE* bubble, const CORTEX_FILE *c_file);
 
+// Read a bubble from a file
 char cortex_read_bubble(CORTEX_BUBBLE* bubble, CORTEX_FILE* file);
+// Print a bubble that came from a given file
 void cortex_print_bubble(const CORTEX_BUBBLE* bubble, const CORTEX_FILE *c_file);
 
+//
 // Reading alignments
+//
+
+// Before reading any alignments allocate memory for the result with:
 CORTEX_ALIGNMENT* cortex_alignment_create(const CORTEX_FILE *c_file);
+// Once you're done reading, free memory
 void cortex_alignment_free(CORTEX_ALIGNMENT* alignment, const CORTEX_FILE *c_file);
 
+// Read an alignment to a (possibly multicoloured) graph from a file
 char cortex_read_alignment(CORTEX_ALIGNMENT* alignment, CORTEX_FILE* file);
+// Print an alignment that came from a given file
 void cortex_print_alignment(const CORTEX_ALIGNMENT* alignment,
                             const CORTEX_FILE* file);
 

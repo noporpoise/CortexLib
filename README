@@ -14,12 +14,59 @@
  Iqbal(*), Caccamo(*), Turner, Flicek, McVean (Nature Genetics) (2012)
  (doi:10.1038/ng.1028)
 
+== Usage ==
+
+See cortex_test.c for example code.  cortex_test.c reads in a cortex alignment
+file or variant bubble calls, parses then and prints them back out.  
+
+Please contact me with questions, requests and bug reports
+
+For perl code for handling cortex data, please see:
+http://github.com/noporpoise/bioinf-perl
+
 == Build ==
+
+In order to build the test code, cortex.h needs to be able to find string_buffer.h
+string_buffer is a separate project, which provides a useful string buffer object
+for use in C.  You're welcome to use it in your own projects too, you may find
+it useful!  It uses the same license as this project (GPLv3).  
+
+string_buffer can be found here: http://github.com/noporpoise/StringBuffer
 
 To build the test code:
 
+1) Change directory into the cortex directory (the one with this README in it!)
+$ cd cortex
+
+2) Create a directory called 'libs'
+$ mkdir libs
+
+3) download the string_buffer directory (from: http://github.com/noporpoise/StringBuffer)
+   into the libs directory
+
+4) Edit the first line of Makefile to read:
+   LIBS_PATH=./libs
+   instead of:
+   LIBS_PATH=../
+
+5) Then type make!
+
 $ make
 $ ./cortex_test
+
+In order to use CortexLib in your own code:
+
+1) Download string_buffer and CortexLib
+2) place at the top of your code:
+
+#include "cortex.h"
+
+3) compile with gcc options:
+  -lz -I path/to/string_buffer/ -I path/to/cortex/
+
+  and the files:
+
+  path/to/cortex/cortex.c path/to/string_buffer/string_buffer.c
 
 == License ==
 
