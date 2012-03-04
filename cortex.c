@@ -869,6 +869,7 @@ char cortex_read_bubble(CORTEX_BUBBLE* bubble, CORTEX_FILE* c_file)
       {
         fprintf(stderr, "cortex.c: missing content from end of file (%s:%lu)\n",
                 c_file->path, c_file->line_number);
+        return 0;
       }
 
       // Get coverage of branch 'branch' on colour 'col'
@@ -912,8 +913,9 @@ void cortex_print_bubble(const CORTEX_BUBBLE* bubble, const CORTEX_FILE *c_file)
     unsigned long col;
     for(col = 0; col < c_file->num_of_colours; col++)
     {
-      char *call;
-      switch (bubble->calls[col])
+      char *call = NULL;
+
+      switch(bubble->calls[col])
       {
         case HOM1:
           call = "HOM1";
