@@ -43,6 +43,9 @@ int main(int argc, char* argv[])
     return EXIT_FAILURE;
   }
 
+  fprintf(stderr, "Colours [%lu]: %s\n",
+          cortex_file->num_of_colours, cortex_colour_list_str(cortex_file));
+
   if(cortex_file->filetype == BUBBLE_FILE)
   {
     CORTEX_BUBBLE* bubble = cortex_bubble_create(cortex_file);

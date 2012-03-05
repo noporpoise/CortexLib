@@ -47,9 +47,11 @@ struct CORTEX_FILE
 
   // Syntax of the file
   enum CORTEX_FILE_TYPE filetype;
-  unsigned long num_of_colours;
   unsigned char has_likelihoods, kmer_size,
                 fails_classifier_line, discovery_phase_line, is_diploid;
+
+  unsigned long num_of_colours;
+  unsigned long *colour_arr;
 };
 
 struct COLOUR_COVG
@@ -92,6 +94,11 @@ struct CORTEX_BUBBLE
 CORTEX_FILE* cortex_open(const char *path);
 // cortex_close frees CORTEX_FILE
 void cortex_close(CORTEX_FILE *cortex);
+
+char* cortex_colour_list_str(const CORTEX_FILE* c_file);
+
+long cortex_file_get_colour_index(unsigned long colour,
+                                  const CORTEX_FILE* c_file);
 
 //
 // Reading bubbles

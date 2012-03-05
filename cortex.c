@@ -26,6 +26,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <math.h>
 
 #include "cortex.h"
 
@@ -94,6 +95,51 @@ inline void _set_kmer_size(char *buffer, CORTEX_FILE *c_file)
   free(first_kmer);
 }
 
+void _add_colour_to_list(CORTEX_FILE* c_file, unsigned long new_colour,
+                         unsigned long* capacity)
+{
+  c_file->colour_arr[c_file->num_of_colours++] = new_colour;
+
+  if(*capacity == c_file->num_of_colours)
+  {
+    *capacity *= 2;
+    size_t colour_arr_size = *capacity * sizeof(unsigned long);
+    c_file->colour_arr = realloc(c_file->colour_arr, colour_arr_size);
+  }
+}
+
+// Returns 1 on success, 0 on failure
+char _parse_alignment_colour_num(char* str, unsigned long* new_colour)
+{
+  // Looks like:
+  // >adfasdf_colour_%lu_kmer_coverages
+  
+  char* end_pos = strstr(str, "_kmer_coverages");
+  
+  if(end_pos == NULL)
+  {
+    return 0;
+  }
+  
+  // Work backwards to find '_'
+  char* start_pos;
+  
+  for(start_pos = end_pos-1; start_pos >= str; start_pos--)
+  {
+    if(*start_pos == '_')
+    {
+      if(start_pos + 1 == end_pos)
+      {
+        return 0;
+      }
+
+      return sscanf(start_pos+1, "%lu_kmer_coverages", new_colour);
+    }
+  }
+  
+  return 0;
+}
+
 // If cannot open file or file is empty will print error and return NULL
 CORTEX_FILE* cortex_open(const char* path)
 {
@@ -105,6 +151,8 @@ CORTEX_FILE* cortex_open(const char* path)
   c_file->filetype = UNKNOWN_FILE;
   c_file->kmer_size = 0;
   c_file->num_of_colours = 0;
+  c_file->colour_arr = NULL;
+
   // Likelihoods
   c_file->has_likelihoods = 0;
   c_file->is_diploid = 0;
@@ -166,6 +214,11 @@ CORTEX_FILE* cortex_open(const char* path)
     }
   }
 
+  // Store colour names here
+  unsigned long colour_arr_capacity = 10;
+  c_file->colour_arr
+    = (unsigned long*) malloc(colour_arr_capacity * sizeof(unsigned long));
+
   if(strncasecmp(c_file->buffer->buff, "Colour", strlen("Colour")) == 0)
   {
     c_file->filetype = BUBBLE_FILE;
@@ -178,14 +231,22 @@ CORTEX_FILE* cortex_open(const char* path)
       if(string_buff_strlen(c_file->buffer) > 0)
       {
         char first_char = c_file->buffer->buff[0];
+        unsigned long new_colour;
 
         if(first_char == '>')
         {
           break;
         }
-        else if(isdigit(first_char))
+        else if(sscanf(c_file->buffer->buff, "%lu H", &new_colour))
         {
-          c_file->num_of_colours++;
+          _add_colour_to_list(c_file, new_colour, &colour_arr_capacity);
+        }
+        else
+        {
+          fprintf(stderr, "cortex.c: unexpected line - no colour or '>' "
+                          "(%s:%lu)\n", path, c_file->line_number);
+          cortex_close(c_file);
+          return NULL;
         }
       }
     }
@@ -216,27 +277,29 @@ CORTEX_FILE* cortex_open(const char* path)
   _cortex_read_line(c_file);
   char* fourth_line = string_buff_as_str(c_file->buffer);
 
+  // Store new colours
+  unsigned long new_colour;
+
   // else if third_line ends "_colour_0_kmer_coverages" AND
   //         fourth_line starts with a [0-9]
   // then ALIGNMENT FILE
-  char *expected_line = "_colour_0_kmer_coverages";
-  char *third_line_search = strstr(third_line, expected_line);
 
-  if(third_line_search != NULL &&
-     third_line_search - third_line + strlen(expected_line)
-       == strlen(third_line) &&
+  if(_parse_alignment_colour_num(third_line, &new_colour) &&
      isdigit(fourth_line[0]))
   {
     c_file->filetype = ALIGNMENT_FILE;
-    c_file->num_of_colours = 1;
+
+    // Add colour to list
+    _add_colour_to_list(c_file, new_colour, &colour_arr_capacity);
 
     // read in pairs on lines
     //  and as long as the second one begins [0-9] then num_of_colours++
 
-    while(_cortex_read_line(c_file) > 0 && _cortex_read_line(c_file) > 0 &&
-          isdigit(c_file->buffer->buff[0]))
+    while(_cortex_read_line(c_file) > 0 &&
+          _parse_alignment_colour_num(c_file->buffer->buff, &new_colour) &&
+          _cortex_read_line(c_file) > 0 && isdigit(c_file->buffer->buff[0]))
     {
-      c_file->num_of_colours++;
+      _add_colour_to_list(c_file, new_colour, &colour_arr_capacity);
     }
 
     // Get kmer size
@@ -298,11 +361,13 @@ CORTEX_FILE* cortex_open(const char* path)
     //  as long as the first line begins 'Covg ..' and
     //             the second line begins [0-9]
     //  then num_of_colours++
+    unsigned long new_colour;
+
     while(_cortex_read_line(c_file) > 0 &&
-          strncasecmp(c_file->buffer->buff, "Covg ", 5) == 0 &&
+          sscanf(c_file->buffer->buff, "Covg in Colour %lu:", &new_colour) &&
           _cortex_read_line(c_file) > 0 && isdigit(c_file->buffer->buff[0]))
     {
-      c_file->num_of_colours++;
+      _add_colour_to_list(c_file, new_colour, &colour_arr_capacity);
     }
 
     // Reset file
@@ -333,8 +398,59 @@ void cortex_close(CORTEX_FILE *c_file)
     gzclose(c_file->file);
   }
 
+  if(c_file->colour_arr != NULL)
+  {
+    free(c_file->colour_arr);
+  }
+
   free(c_file->path);
   free(c_file);
+}
+
+char* cortex_colour_list_str(const CORTEX_FILE* c_file)
+{
+  // Find max
+  unsigned long cortex_i;
+  unsigned long max_colour = c_file->colour_arr[0];
+  for(cortex_i = 1; cortex_i < c_file->num_of_colours; cortex_i++)
+  {
+    if(c_file->colour_arr[cortex_i] > max_colour)
+    {
+      max_colour = c_file->colour_arr[cortex_i];
+    }
+  }
+
+  // Get number of digits
+  int digits_per_colour = log10(max_colour)+1;
+  // first +1 for commas; second +1 for \0
+  int length = (digits_per_colour+1)*c_file->num_of_colours+1;
+  char* str = (char*) malloc(length);
+  str[0] = '\0';
+
+  char* tmp = str + sprintf(str, "%lu", c_file->colour_arr[0]);
+  
+  for(cortex_i = 1; cortex_i < c_file->num_of_colours; cortex_i++)
+  {
+    tmp = tmp + sprintf(tmp, ",%lu", c_file->colour_arr[cortex_i]);
+  }
+
+  return str;
+}
+
+long cortex_file_get_colour_index(unsigned long colour,
+                                  const CORTEX_FILE* c_file)
+{
+  unsigned long cortex_i;
+
+  for(cortex_i = 0; cortex_i < c_file->num_of_colours; cortex_i++)
+  {
+    if(colour == c_file->colour_arr[cortex_i])
+    {
+      return (long)cortex_i;
+    }
+  }
+
+  return -1;
 }
 
 COLOUR_COVG* _colour_covgs_create()
@@ -582,7 +698,7 @@ char cortex_read_alignment(CORTEX_ALIGNMENT* alignment, CORTEX_FILE* c_file)
   }
 
   string_buff_copy(alignment->name, 0, c_file->buffer, 1,
-                   string_buff_strlen(c_file->buffer));
+                   string_buff_strlen(c_file->buffer)-1);
 
   if(_cortex_read_line(c_file) == 0)
   {
@@ -625,7 +741,9 @@ void cortex_print_alignment(const CORTEX_ALIGNMENT* alignment,
   {
     COLOUR_COVG* covgs = alignment->colour_covgs[col];
 
-    printf(">%s_colour_%lu_kmer_coverages\n", alignment->name->buff, col);
+    printf(">%s_colour_%lu_kmer_coverages\n",
+          alignment->name->buff, c_file->colour_arr[col]);
+
     printf("%lu", covgs->colour_covgs[0]);
 
     for(covgs_i = 0; covgs_i < covgs->length; covgs_i++)
@@ -1016,7 +1134,7 @@ void cortex_print_bubble(const CORTEX_BUBBLE* bubble, const CORTEX_FILE *c_file)
     {
       COLOUR_COVG* covgs = bubble->branches_colour_covgs[branch][col];
 
-      printf("Covg in Col %lu:\n", col);
+      printf("Covg in Colour %lu:\n", c_file->colour_arr[col]);
       printf("%lu", covgs->colour_covgs[0]);
 
       for(covgs_i = 0; covgs_i < covgs->length; covgs_i++)
