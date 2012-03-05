@@ -746,7 +746,7 @@ void cortex_print_alignment(const CORTEX_ALIGNMENT* alignment,
 
     printf("%lu", covgs->colour_covgs[0]);
 
-    for(covgs_i = 0; covgs_i < covgs->length; covgs_i++)
+    for(covgs_i = 1; covgs_i < covgs->length; covgs_i++)
     {
       printf(" %lu", covgs->colour_covgs[covgs_i]);
     }
@@ -1137,7 +1137,7 @@ void cortex_print_bubble(const CORTEX_BUBBLE* bubble, const CORTEX_FILE *c_file)
       printf("Covg in Colour %lu:\n", c_file->colour_arr[col]);
       printf("%lu", covgs->colour_covgs[0]);
 
-      for(covgs_i = 0; covgs_i < covgs->length; covgs_i++)
+      for(covgs_i = 1; covgs_i < covgs->length; covgs_i++)
       {
         printf(" %lu", covgs->colour_covgs[covgs_i]);
       }
