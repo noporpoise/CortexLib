@@ -337,7 +337,7 @@ void cortex_close(CORTEX_FILE *c_file)
   free(c_file);
 }
 
-COLOUR_COVG* _create_colour_covgs()
+COLOUR_COVG* _colour_covgs_create()
 {
   COLOUR_COVG* covgs = (COLOUR_COVG*) malloc(sizeof(COLOUR_COVG));
   covgs->colour_covgs = (unsigned long*) malloc(200 * sizeof(unsigned long));
@@ -347,7 +347,12 @@ COLOUR_COVG* _create_colour_covgs()
   return covgs;
 }
 
-void _free_colour_covgs(COLOUR_COVG* covgs)
+void _colour_covgs_reset(COLOUR_COVG* covgs)
+{
+  covgs->length = 0;
+}
+
+void _colour_covgs_free(COLOUR_COVG* covgs)
 {
   free(covgs->colour_covgs);
   free(covgs);
@@ -367,7 +372,7 @@ CORTEX_BUBBLE* cortex_bubble_create(const CORTEX_FILE *c_file)
   
     for(col = 0; col < c_file->num_of_colours; col++)
     {
-      bubble->branches_colour_covgs[branch][col] = _create_colour_covgs();
+      bubble->branches_colour_covgs[branch][col] = _colour_covgs_create();
     }
   }
 
@@ -399,6 +404,25 @@ CORTEX_BUBBLE* cortex_bubble_create(const CORTEX_FILE *c_file)
   return bubble;
 }
 
+void cortex_bubble_reset(CORTEX_BUBBLE* bubble, const CORTEX_FILE *c_file)
+{
+  string_buff_reset(bubble->flank_5p.seq);
+  string_buff_reset(bubble->flank_3p.seq);
+  string_buff_reset(bubble->branches[0].seq);
+  string_buff_reset(bubble->branches[1].seq);
+
+  unsigned long col;
+  int branch;
+
+  for(branch = 0; branch < 2; branch++)
+  {
+    for(col = 0; col < c_file->num_of_colours; col++)
+    {
+      _colour_covgs_reset(bubble->branches_colour_covgs[branch][col]);
+    }
+  }
+}
+
 void cortex_bubble_free(CORTEX_BUBBLE* bubble, const CORTEX_FILE *c_file)
 {
   unsigned long col;
@@ -408,7 +432,7 @@ void cortex_bubble_free(CORTEX_BUBBLE* bubble, const CORTEX_FILE *c_file)
   {
     for(col = 0; col < c_file->num_of_colours; col++)
     {
-      _free_colour_covgs(bubble->branches_colour_covgs[branch][col]);
+      _colour_covgs_free(bubble->branches_colour_covgs[branch][col]);
     }
 
     free(bubble->branches_colour_covgs[branch]);
@@ -441,13 +465,27 @@ CORTEX_ALIGNMENT* cortex_alignment_create(const CORTEX_FILE *c_file)
   unsigned long col;
   for(col = 0; col < c_file->num_of_colours; col++)
   {
-    alignment->colour_covgs[col] = _create_colour_covgs();
+    alignment->colour_covgs[col] = _colour_covgs_create();
   }
 
   return alignment;
 }
 
-void cortex_alignment_free(CORTEX_ALIGNMENT* alignment, const CORTEX_FILE *c_file)
+void cortex_alignment_reset(CORTEX_ALIGNMENT* alignment,
+                            const CORTEX_FILE *c_file)
+{
+  string_buff_reset(alignment->name);
+  string_buff_reset(alignment->seq);
+
+  unsigned long col;
+  for(col = 0; col < c_file->num_of_colours; col++)
+  {
+    _colour_covgs_reset(alignment->colour_covgs[col]);
+  }
+}
+
+void cortex_alignment_free(CORTEX_ALIGNMENT* alignment,
+                           const CORTEX_FILE *c_file)
 {
   string_buff_free(alignment->name);
   string_buff_free(alignment->seq);
@@ -455,7 +493,7 @@ void cortex_alignment_free(CORTEX_ALIGNMENT* alignment, const CORTEX_FILE *c_fil
   unsigned long col;
   for(col = 0; col < c_file->num_of_colours; col++)
   {
-    _free_colour_covgs(alignment->colour_covgs[col]);
+    _colour_covgs_free(alignment->colour_covgs[col]);
   }
 
   free(alignment->colour_covgs);
@@ -513,6 +551,8 @@ char _read_covg(CORTEX_FILE *c_file, COLOUR_COVG *covgs, size_t required_size)
 
 char cortex_read_alignment(CORTEX_ALIGNMENT* alignment, CORTEX_FILE* c_file)
 {
+  cortex_alignment_reset(alignment, c_file);
+
   if(c_file->filetype != ALIGNMENT_FILE)
   {
     fprintf(stderr, "cortex.c: cortex_read_alignment cannot read from "
@@ -634,7 +674,8 @@ void _print_bubble_path(const unsigned long var_num,
 }
 
 // Returns 1 (success) or 0 (failure).  Path argument is where to store result
-char _read_bubble_path(CORTEX_FILE *c_file, CORTEX_BUBBLE_PATH *path)
+char _read_bubble_path(CORTEX_FILE *c_file, CORTEX_BUBBLE_PATH *path,
+                       unsigned long *var_num)
 {
   // Line looks like:
   // >var_1_5p_flank length:50 average_coverage: 2.00 min_coverage:2 
@@ -653,21 +694,19 @@ char _read_bubble_path(CORTEX_FILE *c_file, CORTEX_BUBBLE_PATH *path)
 
   if(items_read != 7)
   {
-    fprintf(stderr, "cortex.c: cortex_read_bubble couldn't parse line "
+    fprintf(stderr, "cortex.c: _read_bubble_path() couldn't parse line "
                     "[%i items] (%s:%lu)\n",
             items_read, c_file->path, c_file->line_number);
     return 0;
   }
 
-  // Parse var_name
-  unsigned long var_num;
-  
-  if(!sscanf(var_name, "var_%lu_5p_flank", &var_num) && 
-     !sscanf(var_name, "branch_%lu_1", &var_num) && 
-     !sscanf(var_name, "branch_%lu_2", &var_num) && 
-     !sscanf(var_name, "var_%lu_3p_flank", &var_num))
+  // Parse var_name  
+  if(!sscanf(var_name, "var_%lu_5p_flank", var_num) && 
+     !sscanf(var_name, "branch_%lu_1", var_num) && 
+     !sscanf(var_name, "branch_%lu_2", var_num) && 
+     !sscanf(var_name, "var_%lu_3p_flank", var_num))
   {
-    fprintf(stderr, "cortex.c: cortex_read_bubble couldn't parse name "
+    fprintf(stderr, "cortex.c: _read_bubble_path() couldn't parse name "
                     "['%s'] (%s:%lu)\n",
             var_name, c_file->path, c_file->line_number);
     return 0;
@@ -710,6 +749,8 @@ char _read_bubble_path(CORTEX_FILE *c_file, CORTEX_BUBBLE_PATH *path)
 
 char cortex_read_bubble(CORTEX_BUBBLE* bubble, CORTEX_FILE* c_file)
 {
+  cortex_bubble_reset(bubble, c_file);
+
   if(c_file->filetype != BUBBLE_FILE)
   {
     fprintf(stderr, "cortex.c: cortex_read_bubble cannot read from "
@@ -826,15 +867,24 @@ char cortex_read_bubble(CORTEX_BUBBLE* bubble, CORTEX_FILE* c_file)
     _cortex_read_line(c_file);
   }
 
-  unsigned long var_num1 = _read_bubble_path(c_file, &bubble->flank_5p);
-  unsigned long var_num2 = _read_bubble_path(c_file, &bubble->branches[0]);
-  unsigned long var_num3 = _read_bubble_path(c_file, &bubble->branches[1]);
-  unsigned long var_num4 = _read_bubble_path(c_file, &bubble->flank_3p);
+  unsigned long var_num1, var_num2, var_num3, var_num4;
 
-  if(var_num1 != var_num2 || var_num2 != var_num3 || var_num3 != var_num4)
+  if(!_read_bubble_path(c_file, &bubble->flank_5p, &var_num1) ||
+     !_read_bubble_path(c_file, &bubble->branches[0], &var_num2) ||
+     !_read_bubble_path(c_file, &bubble->branches[1], &var_num3) ||
+     !_read_bubble_path(c_file, &bubble->flank_3p, &var_num4))
   {
-    fprintf(stderr, "cortex.c: cortex_read_bubble() lines have different var "
-                    "numbers (%s:%lu)\n", c_file->path, c_file->line_number);
+    fprintf(stderr, "cortex.c: cortex_read_bubble() failed (%s:%lu)\n",
+            c_file->path, c_file->line_number);
+    return 0;
+  }
+
+  if(var_num1 != var_num2 || var_num3 != var_num4 || var_num1 != var_num3)
+  {
+    fprintf(stderr, "cortex.c: cortex_read_bubble() paths have different names"
+                    "[%lu,%lu,%lu,%lu] (%s:%lu)\n",
+            var_num1, var_num2, var_num3, var_num4,
+            c_file->path, c_file->line_number);
     return 0;
   }
 

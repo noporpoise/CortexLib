@@ -99,6 +99,8 @@ void cortex_close(CORTEX_FILE *cortex);
 
 // Before reading any bubbles allocate memory for the result with:
 CORTEX_BUBBLE* cortex_bubble_create(const CORTEX_FILE *c_file);
+// Reset values
+void cortex_bubble_reset(CORTEX_BUBBLE* bubble, const CORTEX_FILE *c_file);
 // Once you're done reading, free memory
 void cortex_bubble_free(CORTEX_BUBBLE* bubble, const CORTEX_FILE *c_file);
 
@@ -113,8 +115,12 @@ void cortex_print_bubble(const CORTEX_BUBBLE* bubble, const CORTEX_FILE *c_file)
 
 // Before reading any alignments allocate memory for the result with:
 CORTEX_ALIGNMENT* cortex_alignment_create(const CORTEX_FILE *c_file);
+// Reset values
+void cortex_alignment_reset(CORTEX_ALIGNMENT* alignment,
+                            const CORTEX_FILE *c_file);
 // Once you're done reading, free memory
-void cortex_alignment_free(CORTEX_ALIGNMENT* alignment, const CORTEX_FILE *c_file);
+void cortex_alignment_free(CORTEX_ALIGNMENT* alignment,
+                           const CORTEX_FILE *c_file);
 
 // Read an alignment to a (possibly multicoloured) graph from a file
 char cortex_read_alignment(CORTEX_ALIGNMENT* alignment, CORTEX_FILE* file);
