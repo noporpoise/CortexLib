@@ -37,9 +37,9 @@ char *discovery_msg = "DISCOVERY PHASE:";
 
 t_buf_pos _cortex_read_line(CORTEX_FILE* c_file)
 {
-  t_buf_pos chars_read = string_buff_reset_gzreadline(c_file->buffer,
+  t_buf_pos chars_read = strbuf_reset_gzreadline(c_file->buffer,
                                                       c_file->file);
-  string_buff_chomp(c_file->buffer);
+  strbuf_chomp(c_file->buffer);
   c_file->line_number++;
   
   //printf("Read: %s\n", c_file->buffer->buff);
@@ -146,7 +146,7 @@ CORTEX_FILE* cortex_open(const char* path)
   CORTEX_FILE* c_file = (CORTEX_FILE*) malloc(sizeof(CORTEX_FILE));
 
   // Give initial values
-  c_file->buffer = string_buff_init(500); // Create read in buffer
+  c_file->buffer = strbuf_init(500); // Create read in buffer
   c_file->line_number = 0;
   c_file->filetype = UNKNOWN_FILE;
   c_file->kmer_size = 0;
@@ -179,7 +179,7 @@ CORTEX_FILE* cortex_open(const char* path)
   t_buf_pos chars_read;
   
   while((chars_read = _cortex_read_line(c_file)) > 0 &&
-        string_buff_strlen(c_file->buffer) == 0);
+        strbuf_len(c_file->buffer) == 0);
 
   if(chars_read == 0)
   {
@@ -228,7 +228,7 @@ CORTEX_FILE* cortex_open(const char* path)
     while(_cortex_read_line(c_file) > 0)
     {
       // Ignore blank lines
-      if(string_buff_strlen(c_file->buffer) > 0)
+      if(strbuf_len(c_file->buffer) > 0)
       {
         char first_char = c_file->buffer->buff[0];
         unsigned long new_colour;
@@ -259,7 +259,7 @@ CORTEX_FILE* cortex_open(const char* path)
     return c_file;
   }
 
-  if(string_buff_get_char(c_file->buffer, 0) != '>')
+  if(strbuf_get_char(c_file->buffer, 0) != '>')
   {
     fprintf(stderr, "cortex.c: unrecognised line (%s:%lu)\n",
             path, c_file->line_number);
@@ -269,13 +269,13 @@ CORTEX_FILE* cortex_open(const char* path)
   }
 
   _cortex_read_line(c_file);
-  unsigned long second_line_len = string_buff_strlen(c_file->buffer);
+  unsigned long second_line_len = strbuf_len(c_file->buffer);
 
   _cortex_read_line(c_file);
-  char* third_line = string_buff_as_str(c_file->buffer);
+  char* third_line = strbuf_as_str(c_file->buffer);
 
   _cortex_read_line(c_file);
-  char* fourth_line = string_buff_as_str(c_file->buffer);
+  char* fourth_line = strbuf_as_str(c_file->buffer);
 
   // Store new colours
   unsigned long new_colour;
@@ -390,7 +390,7 @@ void cortex_close(CORTEX_FILE *c_file)
 {
   if(c_file->buffer != NULL)
   {
-    string_buff_free(c_file->buffer);
+    strbuf_free(c_file->buffer);
   }
 
   if(c_file->file != NULL)
@@ -492,10 +492,10 @@ CORTEX_BUBBLE* cortex_bubble_create(const CORTEX_FILE *c_file)
     }
   }
 
-  bubble->flank_5p.seq = string_buff_init(200);
-  bubble->flank_3p.seq = string_buff_init(200);
-  bubble->branches[0].seq = string_buff_init(200);
-  bubble->branches[1].seq = string_buff_init(200);
+  bubble->flank_5p.seq = strbuf_init(200);
+  bubble->flank_3p.seq = strbuf_init(200);
+  bubble->branches[0].seq = strbuf_init(200);
+  bubble->branches[1].seq = strbuf_init(200);
 
   if(bubble->branches[0].seq == NULL)
   {
@@ -522,10 +522,10 @@ CORTEX_BUBBLE* cortex_bubble_create(const CORTEX_FILE *c_file)
 
 void cortex_bubble_reset(CORTEX_BUBBLE* bubble, const CORTEX_FILE *c_file)
 {
-  string_buff_reset(bubble->flank_5p.seq);
-  string_buff_reset(bubble->flank_3p.seq);
-  string_buff_reset(bubble->branches[0].seq);
-  string_buff_reset(bubble->branches[1].seq);
+  strbuf_reset(bubble->flank_5p.seq);
+  strbuf_reset(bubble->flank_3p.seq);
+  strbuf_reset(bubble->branches[0].seq);
+  strbuf_reset(bubble->branches[1].seq);
 
   unsigned long col;
   int branch;
@@ -554,10 +554,10 @@ void cortex_bubble_free(CORTEX_BUBBLE* bubble, const CORTEX_FILE *c_file)
     free(bubble->branches_colour_covgs[branch]);
   }
 
-  string_buff_free(bubble->flank_5p.seq);
-  string_buff_free(bubble->flank_3p.seq);
-  string_buff_free(bubble->branches[0].seq);
-  string_buff_free(bubble->branches[1].seq);
+  strbuf_free(bubble->flank_5p.seq);
+  strbuf_free(bubble->flank_3p.seq);
+  strbuf_free(bubble->branches[0].seq);
+  strbuf_free(bubble->branches[1].seq);
 
   free(bubble->calls);
   free(bubble->llk_hom_br1);
@@ -572,8 +572,8 @@ CORTEX_ALIGNMENT* cortex_alignment_create(const CORTEX_FILE *c_file)
   CORTEX_ALIGNMENT* alignment
     = (CORTEX_ALIGNMENT*) malloc(sizeof(CORTEX_ALIGNMENT));
 
-  alignment->name = string_buff_init(200);
-  alignment->seq = string_buff_init(200);
+  alignment->name = strbuf_init(200);
+  alignment->seq = strbuf_init(200);
 
   alignment->colour_covgs
     = (COLOUR_COVG**) malloc(c_file->num_of_colours * sizeof(COLOUR_COVG*));
@@ -590,8 +590,8 @@ CORTEX_ALIGNMENT* cortex_alignment_create(const CORTEX_FILE *c_file)
 void cortex_alignment_reset(CORTEX_ALIGNMENT* alignment,
                             const CORTEX_FILE *c_file)
 {
-  string_buff_reset(alignment->name);
-  string_buff_reset(alignment->seq);
+  strbuf_reset(alignment->name);
+  strbuf_reset(alignment->seq);
 
   unsigned long col;
   for(col = 0; col < c_file->num_of_colours; col++)
@@ -603,8 +603,8 @@ void cortex_alignment_reset(CORTEX_ALIGNMENT* alignment,
 void cortex_alignment_free(CORTEX_ALIGNMENT* alignment,
                            const CORTEX_FILE *c_file)
 {
-  string_buff_free(alignment->name);
-  string_buff_free(alignment->seq);
+  strbuf_free(alignment->name);
+  strbuf_free(alignment->seq);
 
   unsigned long col;
   for(col = 0; col < c_file->num_of_colours; col++)
@@ -679,16 +679,16 @@ char cortex_read_alignment(CORTEX_ALIGNMENT* alignment, CORTEX_FILE* c_file)
   }
 
   // Read until not whiteline
-  while(string_buff_strlen(c_file->buffer) == 0 &&
+  while(strbuf_len(c_file->buffer) == 0 &&
         _cortex_read_line(c_file) > 0);
 
-  if(string_buff_strlen(c_file->buffer) == 0)
+  if(strbuf_len(c_file->buffer) == 0)
   {
     // EOF
     return 0;
   }
 
-  if(string_buff_get_char(c_file->buffer, 0) != '>')
+  if(strbuf_get_char(c_file->buffer, 0) != '>')
   {
     fprintf(stderr, "cortex.c: cortex_read_alignment line doesn't start '>' "
                     "(%s:%lu)\n",
@@ -697,8 +697,8 @@ char cortex_read_alignment(CORTEX_ALIGNMENT* alignment, CORTEX_FILE* c_file)
     return 0;
   }
 
-  string_buff_copy(alignment->name, 0, c_file->buffer, 1,
-                   string_buff_strlen(c_file->buffer)-1);
+  strbuf_copy(alignment->name, 0, c_file->buffer, 1,
+                   strbuf_len(c_file->buffer)-1);
 
   if(_cortex_read_line(c_file) == 0)
   {
@@ -707,8 +707,8 @@ char cortex_read_alignment(CORTEX_ALIGNMENT* alignment, CORTEX_FILE* c_file)
     return 0;
   }
 
-  string_buff_copy(alignment->seq, 0, c_file->buffer, 0,
-                   string_buff_strlen(c_file->buffer));
+  strbuf_copy(alignment->seq, 0, c_file->buffer, 0,
+                   strbuf_len(c_file->buffer));
 
   unsigned long col;
   for(col = 0; col < c_file->num_of_colours; col++)
@@ -721,7 +721,7 @@ char cortex_read_alignment(CORTEX_ALIGNMENT* alignment, CORTEX_FILE* c_file)
     }
 
     _read_covg(c_file, alignment->colour_covgs[col],
-               string_buff_strlen(alignment->seq));
+               strbuf_len(alignment->seq));
   }
 
   _cortex_read_line(c_file);
@@ -856,8 +856,8 @@ char _read_bubble_path(CORTEX_FILE *c_file, CORTEX_BUBBLE_PATH *path,
     return 0;
   }
 
-  string_buff_copy(path->seq, 0, c_file->buffer, 0,
-                   string_buff_strlen(c_file->buffer));
+  strbuf_copy(path->seq, 0, c_file->buffer, 0,
+                   strbuf_len(c_file->buffer));
 
   // Load up next line
   _cortex_read_line(c_file);
@@ -879,10 +879,10 @@ char cortex_read_bubble(CORTEX_BUBBLE* bubble, CORTEX_FILE* c_file)
   }
 
   // Read until not whiteline
-  while(string_buff_strlen(c_file->buffer) == 0 &&
+  while(strbuf_len(c_file->buffer) == 0 &&
         _cortex_read_line(c_file) > 0);
 
-  if(string_buff_strlen(c_file->buffer) == 0)
+  if(strbuf_len(c_file->buffer) == 0)
   {
     // EOF
     return 0;
@@ -1012,7 +1012,7 @@ char cortex_read_bubble(CORTEX_BUBBLE* bubble, CORTEX_FILE* c_file)
   t_buf_pos chars_read;
 
   while((chars_read = _cortex_read_line(c_file)) > 0 &&
-        string_buff_strlen(c_file->buffer) == 0);
+        strbuf_len(c_file->buffer) == 0);
 
   if(chars_read == 0)
   {
@@ -1049,7 +1049,7 @@ char cortex_read_bubble(CORTEX_BUBBLE* bubble, CORTEX_FILE* c_file)
 
   // Read until not whiteline
   while((chars_read = _cortex_read_line(c_file)) > 0 &&
-        string_buff_strlen(c_file->buffer) == 0);
+        strbuf_len(c_file->buffer) == 0);
 
   return 1;
 }

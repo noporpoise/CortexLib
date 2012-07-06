@@ -42,7 +42,7 @@ struct CORTEX_FILE
   // For reading the file
   char *path;
   gzFile *file;
-  STRING_BUFFER *buffer;
+  StrBuf *buffer;
   unsigned long line_number; // line currently in buffer (starting at 1)
 
   // Syntax of the file
@@ -62,13 +62,13 @@ struct COLOUR_COVG
 
 struct CORTEX_ALIGNMENT
 {
-  STRING_BUFFER *name, *seq;
+  StrBuf *name, *seq;
   COLOUR_COVG **colour_covgs;
 };
 
 struct CORTEX_BUBBLE_PATH
 {
-  STRING_BUFFER *seq;
+  StrBuf *seq;
   size_t seq_length;
   float mean_covg;
   unsigned long min_covg, max_covg, fst_covg, lst_covg;
